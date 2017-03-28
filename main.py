@@ -4,11 +4,18 @@ import argparse
 import collections
 import ConfigParser as configparser
 import copy
+import datetime
 import httplib
 import json
 import random
 import string
+import sys
 import urlparse
+
+
+def log(s):
+    sys.stderr.write('%s: %s\n' % (datetime.datetime.now(), s))
+    sys.stderr.flush()
 
 
 class Config(object):
@@ -67,7 +74,7 @@ class HTTPService(object):
             cls = httplib.HTTPSConnection
         else:
             cls = httplib.HTTPConnection
-        self.conn = cls(server, port)
+        self.conn = cls(server, port, timeout=600)
 
     def request(self, method, url, headers=None, body=None,
                 ignore_result_body=False):
@@ -80,6 +87,7 @@ class HTTPService(object):
 
         if code in (httplib.BAD_REQUEST, httplib.INTERNAL_SERVER_ERROR,
                     httplib.UNAUTHORIZED, httplib.FORBIDDEN, httplib.CONFLICT):
+            log('%s, %s, %s, %s' % (method, url, headers, body))
             raise HTTPServiceException(code=code, explanation=response.read())
         if ignore_result_body:
             response.read()
@@ -122,11 +130,13 @@ class AuthService(HTTPService):
         }
         response = self.request("POST", "/v3/auth/tokens", headers,
                                 body, ignore_result_body=True)
-        return response.getheader('X-Subject-Token')
+        token = response.getheader('X-Subject-Token')
+        log('Token: %s' % token)
+        return token
 
 
 class ProjectService(HTTPService):
-    def __init__(self, config):
+    def __init__(self, config, filter_domains=None, rename_domains=None):
         super(ProjectService, self).__init__(config.auth_url)
         self.auth_service = AuthService(config)
         self.config = config
@@ -142,6 +152,17 @@ class ProjectService(HTTPService):
         self.assignments_domain_user = {}
         self.assignments_project_user = {}
         self.new_passwords = {}
+        if filter_domains:
+            self.filter_domains = {d.lower() for d in filter_domains}
+        else:
+            self.filter_domains = []
+        if rename_domains:
+            self.rename_domains = {}
+            for d in rename_domains:
+                old_name, new_name = d.split('=')
+                self.rename_domains[old_name] = new_name
+        else:
+            self.rename_domains = {}
 
     def request(self, method, url, headers=None, body=None,
                 ignore_result_body=False):
@@ -162,39 +183,76 @@ class ProjectService(HTTPService):
         target[object_id] = object_name
 
     def get_projects(self, domain_id):
+        log('Get projects for domain %s' % domain_id)
         url = '/v3/projects?domain_id=%s' % domain_id
-        return {p['id']: p for p in self.request('GET', url)['projects']}
+        projects = {p['id']: p for p in self.request('GET', url)['projects']}
+        log('Projects count: %s' % len(projects))
+        return projects
 
     def get_domains(self):
+        log('Get domains')
         url = '/v3/domains'
-        return self.request('GET', url)['domains']
+        domains = self.request('GET', url)['domains']
+        log('Domains count: %s' % len(domains))
+        return domains
 
     def get_users(self, domain_id):
+        log('Get users for domain %s' % domain_id)
         url = '/v3/users?domain_id=%s' % domain_id
-        return self.request('GET', url)['users']
+        users = self.request('GET', url)['users']
+        log('Users count: %s' % len(users))
+        return users
 
     def get_roles(self):
+        log('Get roles')
         url = '/v3/roles'
-        return self.request('GET', url)['roles']
+        roles = self.request('GET', url)['roles']
+        log('Roles count: %s' % len(roles))
+        return roles
 
     def get_assignments_domain_user(self, domain_id, user_id):
+        log('Get assignments for domain %s and user %s' % (domain_id, user_id))
         url = '/v3/domains/%s/users/%s/roles' % (domain_id, user_id)
-        return self.request('GET', url)['roles']
+        roles = self.request('GET', url)['roles']
+        log('Assignments count: %s' % len(roles))
+        return roles
 
     def get_assignments_project_user(self, project_id, user_id):
+        log('Get assignments for project %s and user %s' % (project_id, user_id))
         url = '/v3/projects/%s/users/%s/roles' % (project_id, user_id)
-        return self.request('GET', url)['roles']
+        roles = self.request('GET', url)['roles']
+        log('Assignments count: %s' % len(roles))
+        return roles
+
+    def get_assignments(self, user_id):
+        log('Get assignments for user %s' % (user_id))
+        url = '/v3/role_assignments?user.id=%s' % user_id
+        role_assignments = self.request('GET', url)['role_assignments']
+        log('Assignments count: %s' % len(role_assignments))
+        return role_assignments
 
     def read_info(self):
+        log('Read info for url %s' % self.config.auth_url)
         for domain in self.get_domains():
+            domain_id = domain['id']
+            domain_name = domain['name']
+            if (self.filter_domains and
+                not (
+                    domain_id.lower() in self.filter_domains or
+                    domain_name.lower() in self.filter_domains
+                )
+            ):
+                continue
             rec = {
-                'id': domain['id'],
+                'id': domain_id,
             }
             data = copy.copy(domain)
             for key in ('id', 'links'):
                 data.pop(key, None)
+            domain_name = self.rename_domains.get(domain_name, domain_name)
+            data['name'] = domain_name
             rec['data'] = data
-            self.domains[domain['name']] = rec
+            self.domains[domain_name] = rec
 
         for role in self.get_roles():
             rec = {
@@ -215,7 +273,7 @@ class ProjectService(HTTPService):
             for project_id, project in projects.items():
                 names = [project['name']]
                 parent_id = project['parent_id']
-                if parent_id == project_id:
+                if parent_id == project_id or parent_id == domain_id:
                     parent_id = None
                 while parent_id:
                     pr = projects[parent_id]
@@ -229,6 +287,7 @@ class ProjectService(HTTPService):
                     'name': '/'.join([domain_name, project['name']])
                 }
                 data = copy.copy(project)
+                data['parent_id'] = parent_id
                 for key in ('id', 'links'):
                     data.pop(key, None)
                 rec['data'] = data
@@ -251,30 +310,56 @@ class ProjectService(HTTPService):
                 self.add_name_id(self.user_name_id, user_name,
                                  user_id)
 
-                for role in self.get_assignments_domain_user(domain_id,
-                                                             user_id):
-                    rec = {
-                        'domain_id': domain_id,
-                        'user_id': user_id,
-                        'role_id': role['id']
-                    }
-                    assignment_name = '/'.join([domain_name, user['name'],
-                                                role['name']])
-                    self.assignments_domain_user[assignment_name] = rec
-
-                for project_id, project in projects.items():
-                    for role in self.get_assignments_project_user(project_id,
-                                                                  user_id):
+                for assignment in self.get_assignments(user_id):
+                    if 'domain' in assignment['scope']:
                         rec = {
-                            'project_id': project_id,
+                            'domain_id': assignment['scope']['domain']['id'],
                             'user_id': user_id,
-                            'role_id': role['id']
+                            'role_id': assignment['role']['id']
                         }
+
+                        assignment_name = '/'.join([domain_name, user['name'],
+                                                    self.roles_name_id[rec['role_id']]])
+                        self.assignments_domain_user[assignment_name] = rec
+                    elif 'project' in assignment['scope']:
+                        rec = {
+                            'project_id': assignment['scope']['project']['id'],
+                            'user_id': user_id,
+                            'role_id': assignment['role']['id']
+                        }
+
                         assignment_name = '/'.join([domain_name,
-                                                    project['name'],
+                                                    self.projects_name_id[rec['project_id']],
                                                     user['name'],
-                                                    role['name']])
+                                                    self.roles_name_id[rec['role_id']]])
                         self.assignments_project_user[assignment_name] = rec
+
+
+
+                # for role in self.get_assignments_domain_user(domain_id,
+                #                                              user_id):
+                #     rec = {
+                #         'domain_id': domain_id,
+                #         'user_id': user_id,
+                #         'role_id': role['id']
+                #     }
+                #     assignment_name = '/'.join([domain_name, user['name'],
+                #                                 role['name']])
+                #     self.assignments_domain_user[assignment_name] = rec
+                #
+                # for project_id, project in projects.items():
+                #     for role in self.get_assignments_project_user(project_id,
+                #                                                   user_id):
+                #         rec = {
+                #             'project_id': project_id,
+                #             'user_id': user_id,
+                #             'role_id': role['id']
+                #         }
+                #         assignment_name = '/'.join([domain_name,
+                #                                     project['name'],
+                #                                     user['name'],
+                #                                     role['name']])
+                #         self.assignments_project_user[assignment_name] = rec
 
     def create_domain(self, data):
         url = "/v3/domains"
@@ -346,6 +431,8 @@ def migrate(src, dst, config):
         's': collections.defaultdict(list),
         'f': collections.defaultdict(list)
     }
+    if config.domains:
+        log('Migrate domains')
     for name in diff['domains']:
         if config.domains:
             data = src.domains[name]['data']
@@ -355,8 +442,10 @@ def migrate(src, dst, config):
         else:
             res['f']['domains'].append(name)
 
+    if config.roles:
+        log('Migrate roles')
     for name in diff['roles']:
-        if config.domains:
+        if config.roles:
             data = src.roles[name]['data']
             rec = dst.create_role(data)
             dst.add_name_id(dst.roles_name_id, name, rec['id'])
@@ -364,6 +453,8 @@ def migrate(src, dst, config):
         else:
             res['f']['roles'].append(name)
 
+    if config.projects:
+        log('Migrate projects')
     for name in sorted(diff['projects']):
         if config.projects:
             data = src.projects[name]['data']
@@ -372,21 +463,26 @@ def migrate(src, dst, config):
             if dst_domain_id is None:
                 res['f']['projects'].append(name)
                 continue
-            data['domain_id'] = dst_domain_id
             parent_id = data['parent_id']
             if parent_id is not None:
-                src_parent_name = src.projects_name_id[parent_id]
-                dst_parent_id = dst.projects_name_id.get(src_parent_name)
-                if dst_parent_id is None:
-                    res['f']['projects'].append(name)
-                    continue
+                if parent_id == data['domain_id']:
+                    dst_parent_id = dst_domain_id
+                else:
+                    src_parent_name = src.projects_name_id[parent_id]
+                    dst_parent_id = dst.projects_name_id.get(src_parent_name)
+                    if dst_parent_id is None:
+                        res['f']['projects'].append(name)
+                        continue
                 data['parent_id'] = dst_parent_id
+            data['domain_id'] = dst_domain_id
             rec = dst.create_project(data)
             dst.add_name_id(dst.projects_name_id, name, rec['id'])
             res['s']['projects'].append(name)
         else:
             res['f']['projects'].append(name)
 
+    if config.users:
+        log('Migrate users')
     for name in diff['users']:
         if config.users:
             data = src.users[name]['data']
@@ -413,6 +509,8 @@ def migrate(src, dst, config):
         else:
             res['f']['users'].append(name)
 
+    if config.assignments:
+        log('Migrate assignments for domains and users')
     for name in diff['assignments_domain_user']:
         if config.assignments:
             data = src.assignments_domain_user[name]
@@ -431,6 +529,9 @@ def migrate(src, dst, config):
             res['s']['assignments_domain_user'].append(name)
         else:
             res['f']['assignments_domain_user'].append(name)
+
+    if config.assignments:
+        log('Migrate assignments for projects and users')
 
     for name in diff['assignments_project_user']:
         if config.assignments:
@@ -492,6 +593,8 @@ def print_diff(diff, src, dst):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('config', type=argparse.FileType('r'))
+    parser.add_argument('-d', '--filter_domain', action='append', default=[], dest='filter_domains')
+    parser.add_argument('-r', '--rename_domain', action='append', default=[], dest='rename_domains')
     parser.add_argument('--migrate', action='store_true', default=False)
     args = parser.parse_args()
 
@@ -500,9 +603,9 @@ def main():
 
     cfg_src = Config(dict(cfg_parser.items('source')))
     cfg_dst = Config(dict(cfg_parser.items('dest')))
-    pr_src = ProjectService(cfg_src)
+    pr_src = ProjectService(cfg_src, args.filter_domains, args.rename_domains)
     pr_src.read_info()
-    pr_dst = ProjectService(cfg_dst)
+    pr_dst = ProjectService(cfg_dst, pr_src.domains.keys())
     pr_dst.read_info()
     if args.migrate:
         diff = migrate(pr_src, pr_dst, MigrationConfig(cfg_parser))
