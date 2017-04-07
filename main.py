@@ -218,7 +218,8 @@ class ProjectService(HTTPService):
         return roles
 
     def get_assignments_project_user(self, project_id, user_id):
-        log('Get assignments for project %s and user %s' % (project_id, user_id))
+        log('Get assignments for project %s and user %s' % (project_id,
+                                                            user_id))
         url = '/v3/projects/%s/users/%s/roles' % (project_id, user_id)
         roles = self.request('GET', url)['roles']
         log('Assignments count: %s' % len(roles))
@@ -236,7 +237,8 @@ class ProjectService(HTTPService):
         for domain in self.get_domains():
             domain_id = domain['id']
             domain_name = domain['name']
-            if (self.filter_domains and
+            if (
+                self.filter_domains and
                 not (
                     domain_id.lower() in self.filter_domains or
                     domain_name.lower() in self.filter_domains
@@ -318,8 +320,11 @@ class ProjectService(HTTPService):
                             'role_id': assignment['role']['id']
                         }
 
-                        assignment_name = '/'.join([domain_name, user['name'],
-                                                    self.roles_name_id[rec['role_id']]])
+                        assignment_name = '/'.join([
+                            domain_name,
+                            user['name'],
+                            self.roles_name_id[rec['role_id']]
+                        ])
                         self.assignments_domain_user[assignment_name] = rec
                     elif 'project' in assignment['scope']:
                         rec = {
@@ -328,38 +333,13 @@ class ProjectService(HTTPService):
                             'role_id': assignment['role']['id']
                         }
 
-                        assignment_name = '/'.join([domain_name,
-                                                    self.projects_name_id[rec['project_id']],
-                                                    user['name'],
-                                                    self.roles_name_id[rec['role_id']]])
+                        assignment_name = '/'.join([
+                            domain_name,
+                            self.projects_name_id[rec['project_id']],
+                            user['name'],
+                            self.roles_name_id[rec['role_id']]
+                        ])
                         self.assignments_project_user[assignment_name] = rec
-
-
-
-                # for role in self.get_assignments_domain_user(domain_id,
-                #                                              user_id):
-                #     rec = {
-                #         'domain_id': domain_id,
-                #         'user_id': user_id,
-                #         'role_id': role['id']
-                #     }
-                #     assignment_name = '/'.join([domain_name, user['name'],
-                #                                 role['name']])
-                #     self.assignments_domain_user[assignment_name] = rec
-                #
-                # for project_id, project in projects.items():
-                #     for role in self.get_assignments_project_user(project_id,
-                #                                                   user_id):
-                #         rec = {
-                #             'project_id': project_id,
-                #             'user_id': user_id,
-                #             'role_id': role['id']
-                #         }
-                #         assignment_name = '/'.join([domain_name,
-                #                                     project['name'],
-                #                                     user['name'],
-                #                                     role['name']])
-                #         self.assignments_project_user[assignment_name] = rec
 
     def create_domain(self, data):
         url = "/v3/domains"
@@ -378,7 +358,8 @@ class ProjectService(HTTPService):
         return self.request('POST', url, body={'project': data})['project']
 
     def create_assignments_domain_user(self, domain_id, user_id, role_id):
-        url = '/v3/domains/%s/users/%s/roles/%s' % (domain_id, user_id, role_id)
+        url = '/v3/domains/%s/users/%s/roles/%s' % (domain_id, user_id,
+                                                    role_id)
         self.request('PUT', url, ignore_result_body=True)
 
     def create_assignments_project_user(self, project_id, user_id, role_id):
@@ -593,8 +574,10 @@ def print_diff(diff, src, dst):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('config', type=argparse.FileType('r'))
-    parser.add_argument('-d', '--filter_domain', action='append', default=[], dest='filter_domains')
-    parser.add_argument('-r', '--rename_domain', action='append', default=[], dest='rename_domains')
+    parser.add_argument('-d', '--filter_domain', action='append', default=[],
+                        dest='filter_domains')
+    parser.add_argument('-r', '--rename_domain', action='append', default=[],
+                        dest='rename_domains')
     parser.add_argument('--migrate', action='store_true', default=False)
     args = parser.parse_args()
 
