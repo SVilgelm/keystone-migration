@@ -1,4 +1,6 @@
 # keystone-migration
+[![Build Status](https://travis-ci.org/SVilgelm/keystone-migration.svg?branch=master)](https://travis-ci.org/SVilgelm/keystone-migration)
+
 A migration tool for keystone objects from one cloud to another using api v3
 
 # Usage
