@@ -4,7 +4,11 @@ install:
   - pip install tox
 
 env:
-   - TOXENV=pep8
+  - TOXENV=pep8
 
 script:
   - tox
+
+notifications:
+  slack:
+    secure: PWYRECqj8uN1rLFvyopQvlO487Yl1A06ZyHlYQSuyZcnjXscX1Uo6fJNcz5ymI4HwMHW7C8Gctmf0d2krSqBqtYr/xV1OP7KVIDJM1c07wNl0BDm7CTFoqlS5zzcXd4yCagiHJo/tV5yT5mDpRdLyyJR2eAORGrFRG27Qge+B8/Z1qSAgRuly4qr4Y++aeGZnDN6X3CfSGEgsHR/dtgknjUc75rmjomNhw6A1Fmg7BKJG8f7ZFEW3bMwkdUvvFs+CrAbImb3pQJMgWfvu2bPVlrfB4lfgdySSTkWppWqZW02DBEgxGMTUrnM+2Dtr3B8CYu5uvJftTaxwDfO3udNa7zu59MBAcVb4DJ6bvlJON8BTrNlDfdb+UItKCqsmQzH3B10LkgCzXgyL26kOqljRzjLGfJ9s8oD+TmiVxlkNZfH0YNyjc4eP2Ykrw061tGxuU1f7V9QhY0PugU+BBDY+8uA8yAGBZFqCro6nhVLIQws63NS2h2xL4yolEhXTNcNnrVDMd8d+bKC8tYQ/YhvqpiNvrGTRUm+POxsEBHiSFGL2AsJuyRC7NBsKskENKfCCe12h+D7VGOuh3JAKap4F/i4msjFtb4oLwodJ+eLOJ71jVghxxPKQ6RVvJW034EFf5uxY9iJJEXJgAFDILMPj20kqrw8vkPy9RdNoV+0gMg=
